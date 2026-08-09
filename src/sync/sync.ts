@@ -60,18 +60,25 @@ async function setWatermark(table: SyncedTable, value: number): Promise<void> {
 }
 
 /* --- field mapping --------------------------------------------------------- */
-/* Local rows are camelCase; Postgres columns are snake_case. Only two fields
-   actually differ, but the mapping is explicit so a schema change fails loudly
-   instead of silently dropping a column. */
+/* Local rows are camelCase; Postgres columns are snake_case.
+ *
+ * This was previously a hand-written lookup of the two fields that differed.
+ * Every field added afterwards — parentId, recurrenceId, overdueFrom,
+ * startDate — was silently sent through unconverted, and PostgREST rejected
+ * the whole push with "Could not find the 'parentId' column". Deriving the
+ * conversion removes the entire class of bug: a new camelCase field is
+ * translated whether or not anyone remembers to update a table. */
 
-const TO_REMOTE: Partial<Record<string, string>> = { habitId: 'habit_id', updatedAt: 'updated_at' }
-const TO_LOCAL: Partial<Record<string, string>> = { habit_id: 'habitId', updated_at: 'updatedAt' }
+const toSnake = (key: string): string => key.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`)
+const toCamel = (key: string): string => key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
 
 function toRemote(row: Record<string, unknown>, uid: string): Record<string, unknown> {
   const out: Record<string, unknown> = { user_id: uid }
   for (const [k, v] of Object.entries(row)) {
     if (k === 'dirty') continue // local-only bookkeeping
-    out[TO_REMOTE[k] ?? k] = v
+    // undefined would be sent as null and clobber a value another device set.
+    if (v === undefined) continue
+    out[toSnake(k)] = v
   }
   return out
 }
@@ -80,7 +87,9 @@ function toLocal(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(row)) {
     if (k === 'user_id') continue
-    out[TO_LOCAL[k] ?? k] = v
+    // Postgres returns NULL for unset optional columns; local rows just omit
+    // them, and an explicit null would defeat `?? fallback` reads.
+    out[toCamel(k)] = v === null ? undefined : v
   }
   // Rows arriving from the server are, by definition, already pushed.
   out.dirty = 0

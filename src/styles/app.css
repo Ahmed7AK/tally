@@ -473,19 +473,32 @@
   letter-spacing: 0;
 }
 
+/* Visible by default. Reveal-on-hover is opt-in for pointer devices only —
+   a touch screen never hovers, so hiding these by default made edit and delete
+   permanently invisible on the phone. */
 .row-del {
   flex: 0 0 auto;
-  color: var(--dim-3);
+  color: var(--dim);
   font-size: 16px;
   line-height: 1;
-  padding: 4px 2px;
-  opacity: 0;
+  padding: 4px 6px;
+  opacity: 1;
   transition: opacity 0.12s ease;
 }
 
-.row:hover .row-del,
-.row:focus-within .row-del {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .row-del {
+    opacity: 0;
+  }
+
+  /* `.goal-item` is not a `.row`, so it needs naming explicitly — without it
+     the goal edit/delete buttons never became visible at all. */
+  .row:hover .row-del,
+  .row:focus-within .row-del,
+  .goal-item:hover .row-del,
+  .goal-item:focus-within .row-del {
+    opacity: 1;
+  }
 }
 
 .row-del:hover {
@@ -863,6 +876,46 @@
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--fg);
+}
+
+/* Editable metric value. Styled to read as text until focused, so the card
+   still looks like a readout rather than a form. */
+.tally-input {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.tally-input::-webkit-outer-spin-button,
+.tally-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.tally-input::placeholder {
+  color: var(--dim-3);
+}
+
+.tally-input:focus {
+  color: var(--accent);
+}
+
+:root[data-theme='dark'] .tally-input {
+  font-family: var(--font-doto);
+  font-weight: 900;
+  font-size: 19px;
+}
+
+.tally-card:focus-within {
+  border-color: var(--accent);
 }
 
 :root[data-theme='dark'] .tally-val {

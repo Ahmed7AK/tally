@@ -1,25 +1,92 @@
 import { useEffect, useState } from 'react'
-import { setGoalProgress, setJournal, useDaySummary, useGoals, useJournal, useMetric } from '../db/hooks'
+import {
+  setGoalProgress,
+  setJournal,
+  setMetric,
+  useDaySummary,
+  useGoals,
+  useJournal,
+  useMetric,
+} from '../db/hooks'
 import type { ISODate } from '../lib/date'
 import { playDing } from '../lib/sound'
 import { Check, Label, Ring } from '../components/ui'
 
-/** Today's tally: the three logged numbers followed by one card per habit. */
+/** One editable metric card. Commits on blur rather than per keystroke, so a
+ *  three-digit weight is one sync round trip instead of three. */
+function MetricCard({
+  name,
+  value,
+  step,
+  onCommit,
+}: {
+  name: string
+  value: number | undefined
+  step: number
+  onCommit: (n: number | undefined) => void
+}) {
+  const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
+
+  // Adopt the stored value unless the user is mid-edit.
+  useEffect(() => {
+    if (!editing) setDraft(value == null ? '' : String(value))
+  }, [value, editing])
+
+  function commit() {
+    setEditing(false)
+    const text = draft.trim()
+    if (text === '') return onCommit(undefined)
+    const n = Number(text)
+    if (!Number.isNaN(n)) onCommit(n)
+  }
+
+  return (
+    <div className="tally-card" data-off={value == null}>
+      <input
+        className="tally-input"
+        type="number"
+        inputMode="decimal"
+        step={step}
+        value={draft}
+        placeholder="—"
+        aria-label={`${name} for this day`}
+        onFocus={() => setEditing(true)}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur()
+          if (e.key === 'Escape') {
+            setEditing(false)
+            setDraft(value == null ? '' : String(value))
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      <span className="tally-name">{name}</span>
+    </div>
+  )
+}
+
+/** Today's tally: three editable numbers followed by one card per habit. */
 export function TallyGrid({ date }: { date: ISODate }) {
   const { habits, logs } = useDaySummary(date)
   const m = useMetric(date)
-  const nums: [string, number | undefined][] = [
-    ['Weight', m?.weight],
-    ['Hours', m?.hours],
-    ['Screen', m?.screen],
+  const nums: [string, number | undefined, number, 'weight' | 'hours' | 'screen'][] = [
+    ['Weight', m?.weight, 0.1, 'weight'],
+    ['Hours', m?.hours, 0.5, 'hours'],
+    ['Screen', m?.screen, 0.1, 'screen'],
   ]
   return (
     <div className="tally">
-      {nums.map(([name, v]) => (
-        <div className="tally-card" key={name} data-off={v == null}>
-          <span className="tally-val">{v ?? '—'}</span>
-          <span className="tally-name">{name}</span>
-        </div>
+      {nums.map(([name, v, step, key]) => (
+        <MetricCard
+          key={name}
+          name={name}
+          value={v}
+          step={step}
+          onCommit={(n) => setMetric(date, { [key]: n })}
+        />
       ))}
       {habits.map((h) => {
         const on = !!logs[h.id]

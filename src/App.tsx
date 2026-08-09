@@ -11,7 +11,7 @@ import {
 import { useDaySummary, useHabits } from './db/hooks'
 import { isSoundEnabled, playDing, setSoundEnabled } from './lib/sound'
 import { Label, Ring } from './components/ui'
-import JournalRail, { BestPart } from './components/JournalRail'
+import JournalRail, { BestPart, TallyGrid } from './components/JournalRail'
 import Install from './components/Install'
 import SyncStatus from './components/SyncStatus'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
@@ -298,6 +298,12 @@ function Mobile({
             <>
               <Today date={date} setDate={setDate} />
               <HabitChips date={date} />
+              {/* Logging lives here rather than only at the bottom of Metrics —
+                  weight, hours and screen time get entered daily. */}
+              <div className="section">
+                <Label>Today's tally</Label>
+                <TallyGrid date={date} />
+              </div>
               <BestPart date={date} />
               <SyncStatus />
               <SoundToggle />
