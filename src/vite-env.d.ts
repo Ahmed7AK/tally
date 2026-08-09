@@ -9,3 +9,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** Build timestamp, injected by Vite. Shown in the sync panel. */
+declare const __BUILD_ID__: string

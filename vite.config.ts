@@ -34,9 +34,20 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: '/index.html',
         cleanupOutdatedCaches: true,
+        // Without these a new worker installs but stays in "waiting" until
+        // every window of the app is closed — which for an installed PWA is
+        // approximately never, so devices kept serving a stale bundle after
+        // each deploy. Take over immediately instead.
+        skipWaiting: true,
+        clientsClaim: true,
       },
       devOptions: { enabled: false },
     }),
   ],
+  define: {
+    // Surfaced in the sync panel so "which build is this device running?" is
+    // answerable without guessing.
+    __BUILD_ID__: JSON.stringify(new Date().toISOString().slice(0, 16).replace('T', ' ')),
+  },
   server: { port: 5173, strictPort: false },
 })
