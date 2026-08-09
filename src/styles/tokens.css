@@ -1,0 +1,214 @@
+/* ---------------------------------------------------------------------------
+   Tally design tokens.
+
+   The source design (Tally.dc.html) is authored as two complete palettes over
+   one structure: "Turn 01" (dark, orange, Doto dot-matrix labels) and
+   "Turn 02" (light, system blue, Apple grouped-list grammar). Both ship here;
+   `data-theme` on <html> selects one.
+   --------------------------------------------------------------------------- */
+
+:root {
+  /* Type families — shared across themes, but each theme picks a label face. */
+  --font-grotesk: 'Space Grotesk', system-ui, sans-serif;
+  --font-doto: 'Doto', ui-monospace, monospace;
+  --font-system: -apple-system, 'SF Pro Display', 'Helvetica Neue', system-ui, sans-serif;
+
+  /* Radii */
+  --r-xs: 5px;
+  --r-sm: 6px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 20px;
+  --r-2xl: 22px;
+  --r-pill: 999px;
+
+  /* Spacing */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+
+  /* Overdue is its own signal, deliberately not the accent — in the dark theme
+     the accent is orange and would read as "late" everywhere. */
+  --danger: #ff3b30;
+}
+
+/* --- Turn 01: dark + orange ------------------------------------------------ */
+:root[data-theme='dark'] {
+  --bg: #0b0b0b;
+  --surface: #151515;
+  --surface-2: #0f0f0f;
+  --surface-3: #1a1a1a;
+
+  --accent: #ff5a1f;
+  --accent-on: #0b0b0b;
+  --accent-soft: rgba(255, 90, 31, 0.35);
+
+  --fg: #f2f2f2;
+  --fg-2: #c8c8c8;
+  --fg-3: #a8a8a8;
+  --dim: #767676;
+  --dim-2: #5e5e5e;
+  --dim-3: #4a4a4a;
+
+  --line: #202020;
+  --line-2: #1a1a1a;
+  --line-3: #2a2a2a;
+
+  --ring-off: #3a3a3a;
+  --done-fg: #5e5e5e;
+
+  /* Label face: the dot-matrix voice of this theme. */
+  --font-label: var(--font-doto);
+  --font-body: var(--font-grotesk);
+  --label-weight: 900;
+  --label-spacing: 0.28em;
+
+  /* Checkbox shape — squared in the dark theme. */
+  --check-radius: var(--r-sm);
+  --card-radius: var(--r-lg);
+
+  color-scheme: dark;
+}
+
+/* --- Turn 02: light + system blue ------------------------------------------ */
+:root[data-theme='light'] {
+  --bg: #f2f2f7;
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --surface-3: #e9e9ee;
+
+  --accent: #007aff;
+  --accent-on: #ffffff;
+  --accent-soft: rgba(0, 122, 255, 0.28);
+
+  --fg: #1c1c1e;
+  --fg-2: #3a3a3c;
+  --fg-3: #3a3a3c;
+  --dim: #8e8e93;
+  --dim-2: #8e8e93;
+  --dim-3: #aeaeb2;
+
+  --line: #f0f0f3;
+  --line-2: #f2f2f5;
+  --line-3: #e5e5ea;
+
+  --ring-off: #c7c7cc;
+  --done-fg: #aeaeb2;
+
+  /* Label face: no dot matrix — uppercase system type carries the labels. */
+  --font-label: var(--font-system);
+  --font-body: var(--font-system);
+  --label-weight: 700;
+  --label-spacing: 0.08em;
+
+  /* Checkbox shape — circular in the light theme. */
+  --check-radius: 50%;
+  --card-radius: var(--r-xl);
+
+  color-scheme: light;
+}
+
+/* --------------------------------------------------------------------------- */
+
+* {
+  box-sizing: border-box;
+}
+
+/* Installed on iOS the window is the whole screen, including the area behind
+   the home indicator. `height: 100%` resolves against a viewport Safari reports
+   inconsistently in standalone mode, which left a strip of page background
+   below the tab bar. `100dvh` measures the real thing; the -webkit fallback
+   covers older iOS. */
+html {
+  height: 100%;
+}
+
+body,
+#root {
+  height: 100%;
+  height: -webkit-fill-available;
+  height: 100dvh;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Shared primitives ---------------------------------------------------------- */
+
+.label {
+  font-family: var(--font-label);
+  font-weight: var(--label-weight);
+  letter-spacing: var(--label-spacing);
+  text-transform: uppercase;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.label-accent {
+  color: var(--accent);
+}
+
+.card {
+  background: var(--surface);
+  border-radius: var(--card-radius);
+}
+
+.check {
+  display: block;
+  width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  border-radius: var(--check-radius);
+  border: 1.5px solid var(--ring-off);
+  background: transparent;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.check[data-on='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.strike {
+  color: var(--done-fg);
+  text-decoration: line-through;
+}
