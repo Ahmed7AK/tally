@@ -90,7 +90,7 @@ declare
   v_user  uuid;
   v_id    text;
   v_date  text;
-  v_order integer;
+  v_order double precision;
 begin
   if p_text is null or length(btrim(p_text)) = 0 then
     raise exception 'empty task';

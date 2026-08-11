@@ -9,6 +9,9 @@
 --   * updated_at is epoch milliseconds (bigint), written by the client. Sync is
 --     last-write-wins on this value, so both devices must agree on its meaning
 --     — hence a plain number rather than a server-side timestamp default.
+--   * "order" is double precision, not integer. Reordering assigns the midpoint
+--     between two neighbours so a move rewrites one row rather than renumbering
+--     the list, and midpoints are fractional.
 --   * deleted is a tombstone. Rows are never hard-deleted, because a hard
 --     delete cannot propagate to a device that is currently offline.
 --   * Every table is scoped by user_id with row-level security, so one account
@@ -23,7 +26,7 @@ create table if not exists public.tasks (
   tag         text not null default '',
   title       text not null default '',
   done        boolean not null default false,
-  "order"     integer not null default 0,
+  "order"     double precision not null default 0,
   updated_at  bigint not null,
   deleted     smallint not null default 0,
   primary key (user_id, id)
@@ -35,7 +38,7 @@ create table if not exists public.habits (
   user_id     uuid not null references auth.users (id) on delete cascade,
   name        text not null default '',
   short       text not null default '',
-  "order"     integer not null default 0,
+  "order"     double precision not null default 0,
   updated_at  bigint not null,
   deleted     smallint not null default 0,
   primary key (user_id, id)
@@ -79,7 +82,7 @@ create table if not exists public.goals (
   current     double precision not null default 0,
   target      double precision not null default 1,
   unit        text not null default '',
-  "order"     integer not null default 0,
+  "order"     double precision not null default 0,
   updated_at  bigint not null,
   deleted     smallint not null default 0,
   primary key (user_id, id)
