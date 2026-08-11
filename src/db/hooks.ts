@@ -17,6 +17,7 @@ import {
 } from './db'
 import { addDays, monthDates, today as realToday, type ISODate } from '../lib/date'
 import { parseTaskInput } from '../lib/parse'
+import { chronologicalIndex, needsRebalance, orderAtEnd, orderBetween, rebalanced } from '../lib/order'
 import {
   HORIZON_FOR_RULE,
   instanceId,
@@ -31,14 +32,11 @@ import { requestSync } from '../sync/sync'
  *  read path filters them out. */
 const live = <T extends { deleted: 0 | 1 }>(rows: T[]): T[] => rows.filter((r) => !r.deleted)
 
-/** Timed tasks run in clock order at the top; untimed ones keep insertion order
- *  below them. `time` is "HH:MM", so a plain string compare is chronological. */
-function byTimeThenOrder(a: Task, b: Task): number {
-  if (a.time && b.time) return a.time.localeCompare(b.time) || a.order - b.order
-  if (a.time) return -1
-  if (b.time) return 1
-  return a.order - b.order
-}
+/** Manual order is the only sort. Time no longer overrides it, because a
+ *  chronological sort would silently undo any drag; instead a newly added timed
+ *  task is *inserted* at its chronological position, so the default still comes
+ *  out in clock order and dragging still sticks. */
+const byOrder = (a: { order: number }, b: { order: number }) => a.order - b.order
 
 /** Top-level tasks for the day. Sub-tasks are fetched separately by parent. */
 export function useTasks(date: ISODate): Task[] {
@@ -47,7 +45,7 @@ export function useTasks(date: ISODate): Task[] {
       async () =>
         live(await db.tasks.where('date').equals(date).toArray())
           .filter((t) => !t.parentId)
-          .sort(byTimeThenOrder),
+          .sort(byOrder),
       [date],
       [],
     ) ?? []
@@ -296,6 +294,12 @@ export async function materialiseFor(date: ISODate): Promise<void> {
       if (!taskAppliesOn(rec, date)) continue
       const id = instanceId(rec.id, date)
       if (await db.tasks.get(id)) continue
+      // Slot generated instances by their time like any other task, rather than
+      // pinning them to the top of the day.
+      const siblings = live(await db.tasks.where('date').equals(date).toArray())
+        .filter((t) => !t.parentId)
+        .sort(byOrder)
+      const at = chronologicalIndex(siblings, rec.time)
       await db.tasks.add({
         id,
         date,
@@ -303,7 +307,7 @@ export async function materialiseFor(date: ISODate): Promise<void> {
         time: rec.time,
         tag: rec.tag,
         done: false,
-        order: 0,
+        order: orderBetween(siblings[at - 1]?.order, siblings[at]?.order),
         recurrenceId: rec.id,
         deleted: 0,
         ...touch({}),
@@ -313,15 +317,20 @@ export async function materialiseFor(date: ISODate): Promise<void> {
       if (start < periodStart(rec.rule, rec.startDate)) continue
       const id = instanceId(rec.id, periodKey(rec.rule, date))
       if (await db.goals.get(id)) continue
+      const horizon = HORIZON_FOR_RULE[rec.rule] ?? 'month'
+      const label = periodLabel(rec.rule, date)
+      const siblings = live(await db.goals.toArray()).filter(
+        (g) => g.horizon === horizon && g.label === label,
+      )
       await db.goals.add({
         id,
-        horizon: HORIZON_FOR_RULE[rec.rule] ?? 'month',
-        label: periodLabel(rec.rule, date),
+        horizon,
+        label,
         title: rec.title,
         current: 0,
         target: rec.target,
         unit: rec.unit,
-        order: 0,
+        order: orderAtEnd(siblings.map((g) => g.order)),
         recurrenceId: rec.id,
         deleted: 0,
         ...touch({}),
@@ -439,7 +448,14 @@ export async function addTask(
   tag = '',
   parentId?: string,
 ) {
-  const siblings = await db.tasks.where('date').equals(date).toArray()
+  const siblings = live(await db.tasks.where('date').equals(date).toArray())
+    .filter((t) => t.parentId === parentId)
+    .sort(byOrder)
+
+  // Slot a timed task where the clock says it belongs; everything else appends.
+  const index = chronologicalIndex(siblings, time)
+  const order = orderBetween(siblings[index - 1]?.order, siblings[index]?.order)
+
   await db.tasks.add({
     id: newId(),
     date,
@@ -447,12 +463,64 @@ export async function addTask(
     time,
     tag,
     done: false,
-    order: siblings.filter((t) => !t.deleted && t.parentId === parentId).length,
+    order,
     parentId,
     deleted: 0,
     ...touch({}),
   })
   requestSync()
+}
+
+/** Moves the task at `from` to `to` within its day. Writes one row unless the
+ *  order values have crowded together, in which case the list is renumbered. */
+export async function reorderTasks(date: ISODate, from: number, to: number) {
+  const list = live(await db.tasks.where('date').equals(date).toArray())
+    .filter((t) => !t.parentId)
+    .sort(byOrder)
+  await applyReorder(db.tasks, list, from, to)
+  requestSync()
+}
+
+export async function reorderSubtasks(date: ISODate, parentId: string, from: number, to: number) {
+  const list = live(await db.tasks.where('date').equals(date).toArray())
+    .filter((t) => t.parentId === parentId)
+    .sort(byOrder)
+  await applyReorder(db.tasks, list, from, to)
+  requestSync()
+}
+
+export async function reorderGoals(horizon: Horizon, label: string, from: number, to: number) {
+  const list = live(await db.goals.toArray())
+    .filter((g) => g.horizon === horizon && g.label === label)
+    .sort(byOrder)
+  await applyReorder(db.goals, list, from, to)
+  requestSync()
+}
+
+/** Shared move logic for any ordered, synced table. */
+async function applyReorder<T extends { id: string; order: number }>(
+  table: { update: (id: string, patch: object) => Promise<unknown> },
+  list: T[],
+  from: number,
+  to: number,
+): Promise<void> {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return
+
+  const moved = list[from]
+  const without = list.filter((_, i) => i !== from)
+  const order = orderBetween(without[to - 1]?.order, without[to]?.order)
+
+  await table.update(moved.id, touch({ order }))
+
+  // Renumber only when midpoints have run out of room.
+  const next = without.map((x) => x.order).concat(order)
+  if (needsRebalance(next)) {
+    const resorted = [...without]
+    resorted.splice(to, 0, { ...moved, order })
+    for (const { item, order: o } of rebalanced(resorted)) {
+      await table.update(item.id, touch({ order: o }))
+    }
+  }
 }
 
 /** Tombstones the task and, for a parent, its sub-tasks — an orphaned child
@@ -543,7 +611,9 @@ export async function addGoal(
   target: number,
   unit: string,
 ) {
-  const existing = await db.goals.where('horizon').equals(horizon).toArray()
+  const existing = live(await db.goals.where('horizon').equals(horizon).toArray()).filter(
+    (g) => g.label === label,
+  )
   await db.goals.add({
     id: newId(),
     horizon,
@@ -552,7 +622,7 @@ export async function addGoal(
     current: 0,
     target,
     unit,
-    order: existing.filter((g) => !g.deleted).length,
+    order: orderAtEnd(existing.map((g) => g.order)),
     deleted: 0,
     ...touch({}),
   })

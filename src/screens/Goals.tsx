@@ -4,6 +4,7 @@ import {
   addRecurrence,
   deleteGoal,
   deleteRecurrence,
+  reorderGoals,
   rolloverGoals,
   setGoalProgress,
   updateGoal,
@@ -11,6 +12,7 @@ import {
   useMaterialise,
   useRecurrences,
 } from '../db/hooks'
+import { useDragSort } from '../components/useDragSort'
 import { addDays, fmtRange, monthName, quarterOf, startOfWeek, type ISODate } from '../lib/date'
 import { GOAL_RULES, HORIZON_FOR_RULE, RULE_LABEL } from '../lib/recur'
 import { playDing } from '../lib/sound'
@@ -71,7 +73,42 @@ function GoalEditor({ g, onDone }: { g: Goal; onDone: () => void }) {
   )
 }
 
-function GoalRow({ g }: { g: Goal }) {
+function GoalList({
+  horizon,
+  label,
+  items,
+}: {
+  horizon: Horizon
+  label: string
+  items: Goal[]
+}) {
+  const { containerRef, draggingIndex, gripProps } = useDragSort(
+    items.length,
+    (from, to) => void reorderGoals(horizon, label, from, to),
+    'Reorder goal',
+  )
+  return (
+    <div ref={containerRef} className="sortable">
+      {items.map((g, i) => (
+        <div className="sortable-item" data-sortable="true" data-dragging={draggingIndex === i} key={g.id}>
+          <GoalRow g={g} grip={items.length > 1 ? <Grip {...gripProps(i)} /> : null} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The drag grip. Its own element so dragging never competes with scrolling
+ *  or with tapping the checkbox and steppers. */
+function Grip(props: ReturnType<ReturnType<typeof useDragSort>['gripProps']>) {
+  return (
+    <span className="grip" {...props}>
+      ⠿
+    </span>
+  )
+}
+
+function GoalRow({ g, grip }: { g: Goal; grip: React.ReactNode }) {
   const [editing, setEditing] = useState(false)
   if (editing) return <GoalEditor g={g} onDone={() => setEditing(false)} />
 
@@ -84,6 +121,7 @@ function GoalRow({ g }: { g: Goal }) {
     const done = g.current >= 1
     return (
       <div className="row">
+        {grip}
         <button
           onClick={() => {
             if (!done) playDing()
@@ -111,6 +149,7 @@ function GoalRow({ g }: { g: Goal }) {
     <div className="goal-item">
       <div className="goal-top">
         <span className="goal-title">
+          {grip}
           {g.title}
           {repeating && <span className="repeat-badge" title="Repeating">↻</span>}
         </span>
@@ -261,9 +300,7 @@ export default function Goals({ date }: { date: ISODate }) {
               {items.length === 0 && adding !== h && (
                 <div className="empty">Nothing set for this {h} yet.</div>
               )}
-              {items.map((g) => (
-                <GoalRow g={g} key={g.id} />
-              ))}
+              <GoalList horizon={h} label={labelFor[h]} items={items} />
               {adding === h && (
                 <AddGoalForm horizon={h} label={labelFor[h]} onDone={() => setAdding(null)} />
               )}

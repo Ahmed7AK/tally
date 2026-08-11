@@ -770,6 +770,82 @@
   padding: 0 4px;
 }
 
+/* === Drag to reorder ======================================================= */
+
+.sortable {
+  display: flex;
+  flex-direction: column;
+}
+
+.sortable-item {
+  /* `will-change` keeps the transform on the compositor, so dragging a long
+     list does not repaint every row on every frame. */
+  will-change: transform;
+}
+
+.sortable-item[data-dragging='true'],
+.row[data-dragging='true'] {
+  opacity: 0.92;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  border-radius: var(--r-sm);
+}
+
+.sortable-item[data-dragging='true'] .grip,
+.row[data-dragging='true'] .grip {
+  color: var(--accent);
+  cursor: grabbing;
+}
+
+/* Borders come from the wrapper rather than `:last-child` on the row, which
+   with one wrapper per task would strip every separator in the list. */
+.sortable-item > .row:last-child {
+  border-bottom: 1px solid var(--line);
+}
+
+.sortable-item:last-child > .row:last-child {
+  border-bottom: none;
+}
+
+.grip {
+  flex: 0 0 auto;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim-3);
+  font-size: 13px;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: color 0.12s ease;
+}
+
+.grip:hover,
+.grip:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
+.goal-title .grip {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+/* On a pointer device the grips stay quiet until the row is hovered; on touch
+   there is no hover, so they remain visible. */
+@media (hover: hover) and (pointer: fine) {
+  .grip {
+    opacity: 0;
+  }
+
+  .row:hover .grip,
+  .goal-item:hover .grip,
+  .sortable-item:hover .grip,
+  .grip:focus-visible {
+    opacity: 1;
+  }
+}
+
 /* === Chips ================================================================= */
 
 .chips {

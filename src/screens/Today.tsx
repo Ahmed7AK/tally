@@ -4,6 +4,8 @@ import {
   addTask,
   deleteRecurrence,
   deleteTask,
+  reorderSubtasks,
+  reorderTasks,
   toggleHabit,
   toggleTask,
   updateTask,
@@ -13,6 +15,7 @@ import {
   useRecurrences,
   useSubtasks,
 } from '../db/hooks'
+import { useDragSort } from '../components/useDragSort'
 import type { Task } from '../db/db'
 import { DOW_SHORT, fmtLong, fromISO, today as todayISO, weekDates, type ISODate } from '../lib/date'
 import { formatTime, parseTaskInput } from '../lib/parse'
@@ -81,12 +84,49 @@ function TitleEditor({ task, onDone }: { task: Task; onDone: () => void }) {
   )
 }
 
-function SubtaskRow({ task }: { task: Task }) {
+function SubtaskList({
+  parentId,
+  subs,
+  date,
+}: {
+  parentId: string
+  subs: Task[]
+  date: ISODate
+}) {
+  const { containerRef, draggingIndex, gripProps } = useDragSort(
+    subs.length,
+    (from, to) => void reorderSubtasks(date, parentId, from, to),
+    'Reorder sub-task',
+  )
+  return (
+    <div ref={containerRef} className="sortable">
+      {subs.map((c, i) => (
+        <SubtaskRow
+          task={c}
+          key={c.id}
+          dragging={draggingIndex === i}
+          grip={subs.length > 1 ? <Grip {...gripProps(i)} /> : null}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SubtaskRow({
+  task,
+  grip,
+  dragging,
+}: {
+  task: Task
+  grip: React.ReactNode
+  dragging: boolean
+}) {
   const [editing, setEditing] = useState(false)
   if (editing) return <TitleEditor task={task} onDone={() => setEditing(false)} />
 
   return (
-    <div className="row row-sub">
+    <div className="row row-sub" data-sortable="true" data-dragging={dragging}>
+      {grip}
       <button
         onClick={() => {
           if (!task.done) playDing()
@@ -113,7 +153,29 @@ function SubtaskRow({ task }: { task: Task }) {
   )
 }
 
-function TaskRow({ task, subs, date }: { task: Task; subs: Task[]; date: ISODate }) {
+/** The drag grip. Kept as its own element so dragging never competes with
+ *  scrolling or with tapping the checkbox. */
+function Grip(props: ReturnType<ReturnType<typeof useDragSort>['gripProps']>) {
+  return (
+    <span className="grip" {...props}>
+      ⠿
+    </span>
+  )
+}
+
+function TaskRow({
+  task,
+  subs,
+  date,
+  grip,
+  dragging,
+}: {
+  task: Task
+  subs: Task[]
+  date: ISODate
+  grip: React.ReactNode
+  dragging: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -133,11 +195,14 @@ function TaskRow({ task, subs, date }: { task: Task; subs: Task[]; date: ISODate
   }
 
   return (
-    <>
+    // One wrapper per task so the drag hook has something to measure, and so
+    // dragging a parent carries its sub-tasks with it.
+    <div className="sortable-item" data-sortable="true" data-dragging={dragging}>
       {editing ? (
         <TitleEditor task={task} onDone={() => setEditing(false)} />
       ) : (
         <div className="row" data-overdue={Boolean(task.overdueFrom) && !task.done}>
+          {grip}
           <button
             onClick={() => {
               if (!task.done) playDing()
@@ -193,9 +258,7 @@ function TaskRow({ task, subs, date }: { task: Task; subs: Task[]; date: ISODate
 
       {open && (
         <>
-          {subs.map((c) => (
-            <SubtaskRow task={c} key={c.id} />
-          ))}
+          <SubtaskList parentId={task.id} subs={subs} date={date} />
           <form className="row row-sub row-sub-add" onSubmit={addSub}>
             <span className="row-add-glyph">＋</span>
             <input
@@ -209,7 +272,7 @@ function TaskRow({ task, subs, date }: { task: Task; subs: Task[]; date: ISODate
           </form>
         </>
       )}
-    </>
+    </div>
   )
 }
 
@@ -218,6 +281,11 @@ export function TaskList({ date }: { date: ISODate }) {
   const subtasks = useSubtasks(date)
   const [draft, setDraft] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const { containerRef, draggingIndex, gripProps } = useDragSort(
+    tasks.length,
+    (from, to) => void reorderTasks(date, from, to),
+    'Reorder task',
+  )
 
   // Parsed on every keystroke so the preview shows what will actually be saved.
   const parsed = useMemo(() => (draft.trim() ? parseTaskInput(draft, date) : null), [draft, date])
@@ -282,9 +350,18 @@ export function TaskList({ date }: { date: ISODate }) {
 
       {tasks.length === 0 && !showPreview && <div className="empty">Nothing planned for this day.</div>}
 
-      {tasks.map((t) => (
-        <TaskRow task={t} subs={subtasks[t.id] ?? []} date={date} key={t.id} />
-      ))}
+      <div ref={containerRef} className="sortable">
+        {tasks.map((t, i) => (
+          <TaskRow
+            task={t}
+            subs={subtasks[t.id] ?? []}
+            date={date}
+            key={t.id}
+            dragging={draggingIndex === i}
+            grip={tasks.length > 1 ? <Grip {...gripProps(i)} /> : null}
+          />
+        ))}
+      </div>
     </div>
   )
 }
