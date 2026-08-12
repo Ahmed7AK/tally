@@ -72,6 +72,8 @@ export interface Goal extends Synced {
   order: number
   /** Set when this goal was materialised from a Recurrence. */
   recurrenceId?: string
+  /** Set when this goal belongs to a Topic rather than to you directly. */
+  topicId?: string
 }
 
 /** id is the ISO date. */
@@ -103,6 +105,20 @@ export interface Recurrence extends Synced {
   startDate: ISODate
   /** 0 = Sunday … 6 = Saturday. Only meaningful when rule is 'weekly'. */
   weekday: number
+  /** Carried onto materialised goals so a repeating topic goal stays with its
+   *  topic instead of reappearing in the personal list. */
+  topicId?: string
+}
+
+/** A commitment, organisation or area of responsibility that owns its own set
+ *  of goals — separate from your personal ones, so a quarter goal for a club
+ *  doesn't sit in the same list as a quarter goal for your training. */
+export interface Topic extends Synced {
+  name: string
+  /** Your role in it, e.g. "Treasurer", "Founder". */
+  position: string
+  summary: string
+  order: number
 }
 
 export interface Setting {
@@ -111,6 +127,7 @@ export interface Setting {
 }
 
 export type SyncedTable =
+  | 'topics'
   | 'tasks'
   | 'habits'
   | 'habitLogs'
@@ -119,7 +136,10 @@ export type SyncedTable =
   | 'journal'
   | 'recurrences'
 
+/** Topics lead: goals reference them, so pulling a topic before the goals that
+ *  point at it avoids a window where a goal has nowhere to appear. */
 export const SYNCED_TABLES: SyncedTable[] = [
+  'topics',
   'tasks',
   'habits',
   'habitLogs',
@@ -131,6 +151,7 @@ export const SYNCED_TABLES: SyncedTable[] = [
 
 /** Local table name -> Postgres table name. */
 export const REMOTE_TABLE: Record<SyncedTable, string> = {
+  topics: 'topics',
   tasks: 'tasks',
   habits: 'habits',
   habitLogs: 'habit_logs',
@@ -148,6 +169,7 @@ const db = new Dexie(DB_NAME) as Dexie & {
   goals: EntityTable<Goal, 'id'>
   journal: EntityTable<JournalEntry, 'id'>
   recurrences: EntityTable<Recurrence, 'id'>
+  topics: EntityTable<Topic, 'id'>
   settings: EntityTable<Setting, 'key'>
 }
 
@@ -163,6 +185,10 @@ db.version(1).stores({
 
 db.version(2).stores({
   recurrences: 'id, kind, dirty, updatedAt',
+})
+
+db.version(3).stores({
+  topics: 'id, order, dirty, updatedAt',
 })
 
 export { db }

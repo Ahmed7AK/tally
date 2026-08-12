@@ -14,6 +14,7 @@ import {
   type Recurrence,
   type Synced,
   type Task,
+  type Topic,
 } from './db'
 import { addDays, monthDates, today as realToday, type ISODate } from '../lib/date'
 import { parseTaskInput } from '../lib/parse'
@@ -263,6 +264,55 @@ export function useMonthJournal(date: ISODate) {
   )
 }
 
+export function useTopics(): Topic[] {
+  return useLiveQuery(async () => live(await db.topics.toArray()).sort(byOrder), [], []) ?? []
+}
+
+export async function addTopic(name: string, position: string, summary: string) {
+  const existing = live(await db.topics.toArray())
+  await db.topics.add({
+    id: newId(),
+    name,
+    position,
+    summary,
+    order: orderAtEnd(existing.map((t) => t.order)),
+    deleted: 0,
+    ...touch({}),
+  })
+  requestSync()
+}
+
+export async function updateTopic(id: string, patch: Partial<Topic>) {
+  await db.topics.update(id, touch(patch))
+  requestSync()
+}
+
+/** Removes the topic along with everything scoped to it. Leaving the goals
+ *  behind would strand them: they filter out of the personal list by having a
+ *  topicId, and out of the topic list by having no topic. */
+export async function deleteTopic(id: string) {
+  await db.transaction('rw', [db.topics, db.goals, db.recurrences], async () => {
+    await db.topics.update(id, touch({ deleted: 1 }))
+    const goals = await db.goals.toArray()
+    await Promise.all(
+      goals.filter((g) => g.topicId === id && !g.deleted).map((g) => db.goals.update(g.id, touch({ deleted: 1 }))),
+    )
+    const recs = await db.recurrences.toArray()
+    await Promise.all(
+      recs
+        .filter((r) => r.topicId === id && !r.deleted)
+        .map((r) => db.recurrences.update(r.id, touch({ deleted: 1 }))),
+    )
+  })
+  requestSync()
+}
+
+export async function reorderTopics(from: number, to: number) {
+  const list = live(await db.topics.toArray()).sort(byOrder)
+  await applyReorder(db.topics, list, from, to)
+  requestSync()
+}
+
 export function useRecurrences(kind?: 'task' | 'goal'): Recurrence[] {
   return (
     useLiveQuery(
@@ -320,7 +370,7 @@ export async function materialiseFor(date: ISODate): Promise<void> {
       const horizon = HORIZON_FOR_RULE[rec.rule] ?? 'month'
       const label = periodLabel(rec.rule, date)
       const siblings = live(await db.goals.toArray()).filter(
-        (g) => g.horizon === horizon && g.label === label,
+        (g) => g.horizon === horizon && g.label === label && g.topicId === rec.topicId,
       )
       await db.goals.add({
         id,
@@ -330,6 +380,7 @@ export async function materialiseFor(date: ISODate): Promise<void> {
         current: 0,
         target: rec.target,
         unit: rec.unit,
+        topicId: rec.topicId,
         order: orderAtEnd(siblings.map((g) => g.order)),
         recurrenceId: rec.id,
         deleted: 0,
@@ -396,8 +447,15 @@ export async function rolloverGoals(labels: Record<Horizon, string>): Promise<vo
 
   for (const g of stale) {
     // Don't resurrect a goal into a period that already holds the same title.
+    // Scoped by topic, so an identically-named goal under a different topic
+    // doesn't block the move.
     const clash = goals.some(
-      (o) => o.id !== g.id && o.horizon === g.horizon && o.title === g.title && o.label === labels[g.horizon],
+      (o) =>
+        o.id !== g.id &&
+        o.horizon === g.horizon &&
+        o.title === g.title &&
+        o.topicId === g.topicId &&
+        o.label === labels[g.horizon],
     )
     if (clash) continue
     await db.goals.update(g.id, touch({ label: labels[g.horizon] }))
@@ -489,9 +547,15 @@ export async function reorderSubtasks(date: ISODate, parentId: string, from: num
   requestSync()
 }
 
-export async function reorderGoals(horizon: Horizon, label: string, from: number, to: number) {
+export async function reorderGoals(
+  horizon: Horizon,
+  label: string,
+  from: number,
+  to: number,
+  topicId?: string,
+) {
   const list = live(await db.goals.toArray())
-    .filter((g) => g.horizon === horizon && g.label === label)
+    .filter((g) => g.horizon === horizon && g.label === label && g.topicId === topicId)
     .sort(byOrder)
   await applyReorder(db.goals, list, from, to)
   requestSync()
@@ -610,9 +674,10 @@ export async function addGoal(
   title: string,
   target: number,
   unit: string,
+  topicId?: string,
 ) {
   const existing = live(await db.goals.where('horizon').equals(horizon).toArray()).filter(
-    (g) => g.label === label,
+    (g) => g.label === label && g.topicId === topicId,
   )
   await db.goals.add({
     id: newId(),
@@ -622,6 +687,7 @@ export async function addGoal(
     current: 0,
     target,
     unit,
+    topicId,
     order: orderAtEnd(existing.map((g) => g.order)),
     deleted: 0,
     ...touch({}),
