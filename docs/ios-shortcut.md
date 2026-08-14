@@ -18,22 +18,16 @@ into the Supabase **SQL Editor** and run it.
 
 ## 2. Mint a token
 
-Find your user id under **Authentication → Users**, then run this in the SQL
-Editor, substituting it:
+In Tally, open **Siri quick capture** in the settings area and press
+**＋ Create a token**. It's shown once, with a copy button, and the same panel
+lists your existing tokens and revokes them.
 
-```sql
-insert into public.quick_add_tokens (token, user_id, label)
-values (encode(gen_random_bytes(24), 'hex'), '<YOUR-USER-UUID>', 'iPhone')
-returning token;
-```
+Treat it like a password — anyone holding it can append tasks to your list. Mint
+a separate one per device so you can revoke them independently.
 
-Copy the returned token. Treat it like a password — anyone holding it can append
-tasks to your list. Mint a separate one per device so you can revoke them
-independently:
-
-```sql
-delete from public.quick_add_tokens where label = 'iPhone';
-```
+> If the panel shows a permission error, run
+> `supabase/migrate-006-token-grants.sql` — the table needs privileges that
+> row-level security then filters.
 
 ## 3. Build the Shortcut
 
@@ -83,9 +77,14 @@ the parse just happens on next open rather than instantly.
 | Response | Meaning |
 |---|---|
 | `{"ok":true,...}` | Worked. The task is on today's list. |
-| `unauthorized` | Token is wrong, or was deleted. |
-| `empty task` | No text was sent — check the `p_text` variable is wired up. |
+| `unauthorized` (code `P0001`) | The token sent doesn't match any row — usually never created, or truncated on paste. Create one in **Siri quick capture** and copy it with the button. |
+| `empty task` (code `P0001`) | No text was sent — check the `p_text` variable is wired up. |
+| `PGRST202` / function not found | A JSON key is misspelled. They must be exactly `p_token` and `p_text`. |
 | `401` / `No API key found` | The `apikey` header is missing or wrong. |
+
+Note the distinction: `P0001` means the function **ran** and rejected you, so
+your headers and JSON keys are already correct. Only the token value is at
+fault.
 
 The task always lands on **today** in the server's reckoning of the date. If you
 capture something just before midnight while travelling, it may land a day off —

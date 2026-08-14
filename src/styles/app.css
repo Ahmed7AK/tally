@@ -1796,6 +1796,36 @@
   line-height: 1.4;
 }
 
+/* === Quick capture tokens ================================================== */
+
+.capture {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  border: 1px solid var(--line-3);
+}
+
+.capture-code {
+  font-family: ui-monospace, 'SF Mono', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--fg-2);
+  /* Tokens and URLs are long and unbreakable; wrap rather than overflow. */
+  word-break: break-all;
+  user-select: all;
+}
+
+.capture-token {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .install-bar {
   display: flex;
   align-items: center;
