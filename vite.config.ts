@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      // injectManifest rather than generateSW: push and notificationclick
+      // handlers cannot be expressed through the generator, so src/sw.ts owns
+      // the worker and workbox only injects the precache list.
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
@@ -30,18 +36,12 @@ export default defineConfig({
           },
         ],
       },
-      workbox: {
+      // With injectManifest the worker itself calls skipWaiting/clientsClaim;
+      // this block only controls what gets precached.
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
-        navigateFallback: '/index.html',
-        cleanupOutdatedCaches: true,
-        // Without these a new worker installs but stays in "waiting" until
-        // every window of the app is closed — which for an installed PWA is
-        // approximately never, so devices kept serving a stale bundle after
-        // each deploy. Take over immediately instead.
-        skipWaiting: true,
-        clientsClaim: true,
       },
-      devOptions: { enabled: false },
+      devOptions: { enabled: false, type: 'module' },
     }),
   ],
   define: {

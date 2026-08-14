@@ -14,6 +14,7 @@ import { Label, Ring } from './components/ui'
 import JournalRail, { BestPart, TallyGrid } from './components/JournalRail'
 import Install from './components/Install'
 import SyncStatus from './components/SyncStatus'
+import Reminders from './components/Reminders'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import SignIn from './screens/SignIn'
 import Today, { HabitChips } from './screens/Today'
@@ -191,6 +192,7 @@ function Desktop({
 
         <div className="d-side-foot">
           <SyncStatus />
+          <Reminders />
           <SoundToggle />
           <Install />
           <button className="ghost-btn" onClick={toggleTheme}>

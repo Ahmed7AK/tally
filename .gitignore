@@ -7,3 +7,7 @@ tsconfig.tsbuildinfo
 .env.local
 .env.*.local
 .vercel
+.env*
+
+.vapid-private.txt
+.env.prod.local
