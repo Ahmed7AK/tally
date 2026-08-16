@@ -84,6 +84,11 @@ begin
 end;
 $$;
 
+-- Revoking from PUBLIC is not sufficient: Supabase's default privileges grant
+-- EXECUTE on new functions directly to anon and authenticated, and a direct
+-- grant survives a revoke from PUBLIC. This function hands back push
+-- credentials, so both must be revoked by name.
+revoke all on function public.pending_habit_reminders() from anon, authenticated;
 revoke all on function public.pending_habit_reminders() from public;
 grant execute on function public.pending_habit_reminders() to service_role;
 
