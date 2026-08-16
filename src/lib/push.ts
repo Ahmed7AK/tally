@@ -162,25 +162,67 @@ export async function sendLocalTest(delayMs = 4000): Promise<void> {
 /** End-to-end test: asks the server to push to this account's devices, which
  *  exercises the VAPID keys, the stored subscription and the push service —
  *  everything the 6pm reminder depends on. */
+/** supabase-js reports every failed invoke as "Edge Function returned a non-2xx
+ *  status code" and throws the body away. The body is the only part that says
+ *  what went wrong, so dig it back out of the attached Response. */
+async function describeInvokeError(error: unknown): Promise<string> {
+  const response = (error as { context?: Response }).context
+  const fallback = (error as Error).message ?? 'Unknown error'
+
+  if (!response || typeof response.text !== 'function') return fallback
+
+  let detail = ''
+  try {
+    const text = await response.text()
+    try {
+      const parsed = JSON.parse(text) as { error?: string; message?: string }
+      detail = parsed.error ?? parsed.message ?? text
+    } catch {
+      detail = text
+    }
+  } catch {
+    // Body already consumed or unreadable — the status alone still helps.
+  }
+
+  switch (response.status) {
+    case 404:
+      return 'The habit-reminder function is not deployed under that name.'
+    case 401:
+      return detail.includes('sign in')
+        ? 'The function rejected the sign-in. Redeploy it — the test path is new.'
+        : `Unauthorized (401). ${detail}`
+    case 500:
+      // Usually a boot failure: a bad import or a missing secret.
+      return `The function errored (500). ${detail || 'Check its logs and that all three VAPID secrets are set.'}`
+    default:
+      return `HTTP ${response.status}. ${detail || fallback}`
+  }
+}
+
 export async function sendPushTest(): Promise<string> {
   if (!supabase) throw new Error('Sync is not configured.')
 
   const { data, error } = await supabase.functions.invoke('habit-reminder', {
     body: { test: true },
   })
-  if (error) {
-    throw new Error(
-      // A 404 here means the function was never deployed, which is by far the
-      // most common cause and the least obvious from the raw message.
-      /not found/i.test(error.message)
-        ? 'The habit-reminder Edge Function is not deployed yet.'
-        : error.message,
-    )
+  if (error) throw new Error(await describeInvokeError(error))
+
+  const result = data as { sent?: number; due?: number; failures?: string[] } | null
+  const sent = result?.sent ?? 0
+
+  if (sent === 0) {
+    if (result?.failures?.length) {
+      // A 401/403 from the push service means the function's VAPID keys are
+      // not the pair this device subscribed with.
+      throw new Error(`Push rejected — ${result.failures[0]}`)
+    }
+    if ((result?.due ?? 0) === 0) {
+      throw new Error(
+        'The server has no push subscription for this device. Switch reminders off and on to re-register.',
+      )
+    }
+    throw new Error('The server tried but every push failed. Check the function logs.')
   }
 
-  const sent = (data as { sent?: number } | null)?.sent ?? 0
-  if (sent === 0) {
-    throw new Error('The server had no push subscription for this device. Try switching reminders off and on.')
-  }
-  return `Server pushed to ${sent} device${sent === 1 ? '' : 's'}.`
+  return `Server pushed to ${sent} device${sent === 1 ? '' : 's'}. Lock your screen to see it.`
 }

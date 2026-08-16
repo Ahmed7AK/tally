@@ -72,6 +72,26 @@ Edge Functions → `habit-reminder` → **Secrets**:
 
 Permission has to be requested from a tap; iOS ignores requests that aren't.
 
+## If it returns WORKER_ERROR
+
+That means the function died rather than answering, so there is nothing in the
+response to go on. Ask it to describe its own environment instead — this sends
+no notifications and needs no working dependency:
+
+```bash
+curl -X POST "https://<PROJECT-REF>.supabase.co/functions/v1/habit-reminder" -H "Authorization: Bearer <SERVICE-ROLE-KEY>" -H "Content-Type: application/json" -d '{"probe":true}'
+```
+
+| Field | Meaning |
+|---|---|
+| `missingSecrets` | Secrets not set. The commonest cause. |
+| `webpushLoads` | `false` means the push library failed to load; `importError` says why. |
+| `vapidSubject` | Must be a `mailto:` or `https:` URL. |
+
+Every other error now carries a `stage` naming the last checkpoint reached
+(`read-env`, `import-webpush`, `set-vapid`, `query-pending`, `send`), so a 500
+says where it broke instead of just that it did.
+
 ## Checking it works
 
 Call the function by hand — it returns what it did without waiting for cron:
