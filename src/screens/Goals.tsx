@@ -21,6 +21,7 @@ import { addDays, fmtRange, monthName, quarterOf, startOfWeek, type ISODate } fr
 import { HORIZON_FOR_RULE, RULE_LABEL } from '../lib/recur'
 import { playDing } from '../lib/sound'
 import { useDragSort } from '../components/useDragSort'
+import ShareTopic from '../components/ShareTopic'
 import { Bar, Check, Label } from '../components/ui'
 import type { Goal, Horizon, RepeatRule, Topic } from '../db/db'
 
@@ -420,6 +421,7 @@ function TopicCard({
 
       {open && (
         <div className="topic-body">
+          <ShareTopic topic={topic} />
           {HORIZONS.map((h) => (
             <GoalGroup
               key={h}

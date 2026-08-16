@@ -276,6 +276,10 @@ export async function addTopic(name: string, position: string, summary: string) 
     position,
     summary,
     order: orderAtEnd(existing.map((t) => t.order)),
+    // Sharing starts off; the visibility flags only matter once it is on.
+    shared: 0,
+    shareProgress: 1,
+    shareSummary: 1,
     deleted: 0,
     ...touch({}),
   })

@@ -18,6 +18,8 @@ import Reminders from './components/Reminders'
 import QuickCapture from './components/QuickCapture'
 import { AuthProvider, useAuth } from './auth/AuthProvider'
 import SignIn from './screens/SignIn'
+import Shared from './screens/Shared'
+import { shareTokenFromUrl } from './lib/share'
 import Today, { HabitChips } from './screens/Today'
 import Habits from './screens/Habits'
 import Goals from './screens/Goals'
@@ -362,6 +364,11 @@ function Shell() {
 }
 
 export default function App() {
+  // Checked before the provider mounts: a shared link must render for someone
+  // with no account, and must not touch auth, sync or the local database.
+  const shareToken = shareTokenFromUrl()
+  if (shareToken) return <Shared token={shareToken} />
+
   return (
     <AuthProvider>
       <Shell />

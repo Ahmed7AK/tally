@@ -119,6 +119,13 @@ export interface Topic extends Synced {
   position: string
   summary: string
   order: number
+  /** Unguessable token in the share URL. Rotating it invalidates old links. */
+  shareToken?: string
+  /** 0/1 rather than boolean, matching `deleted`. */
+  shared: 0 | 1
+  /** Whether viewers see the numbers, or only which goals are done. */
+  shareProgress: 0 | 1
+  shareSummary: 0 | 1
 }
 
 export interface Setting {
