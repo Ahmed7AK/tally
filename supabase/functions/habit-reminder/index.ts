@@ -46,25 +46,84 @@ function body(remaining: number, total: number) {
   })
 }
 
-Deno.serve(async () => {
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+/** Devices belonging to the caller, ignoring the time window and habit check.
+ *  Identified from the caller's own JWT, so a test can only ever reach your own
+ *  phone — never someone else's. */
+async function testTargets(
+  supabase: ReturnType<typeof createClient>,
+  authHeader: string | null,
+): Promise<Pending[]> {
+  if (!authHeader) throw new Error('sign in first')
+
+  const jwt = authHeader.replace(/^Bearer\s+/i, '')
+  const { data: userData, error: userErr } = await supabase.auth.getUser(jwt)
+  if (userErr || !userData.user) throw new Error('sign in first')
+
+  const { data, error } = await supabase
+    .from('push_subscriptions')
+    .select('endpoint,p256dh,auth')
+    .eq('user_id', userData.user.id)
+  if (error) throw new Error(error.message)
+
+  return (data ?? []).map((d) => ({ ...d, remaining: 1, total: 1 }) as Pending)
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
+
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY)
 
-  const { data, error } = await supabase.rpc('pending_habit_reminders')
-  if (error) {
-    console.error('pending_habit_reminders failed', error)
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 })
+  let isTest = false
+  try {
+    isTest = (await req.clone().json())?.test === true
+  } catch {
+    // No body, or not JSON — the cron calls it that way.
   }
 
-  const pending = (data ?? []) as Pending[]
+  let pending: Pending[]
+  if (isTest) {
+    try {
+      pending = await testTargets(supabase, req.headers.get('Authorization'))
+    } catch (err) {
+      return new Response(JSON.stringify({ error: (err as Error).message }), {
+        status: 401,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+  } else {
+    const { data, error } = await supabase.rpc('pending_habit_reminders')
+    if (error) {
+      console.error('pending_habit_reminders failed', error)
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      })
+    }
+    pending = (data ?? []) as Pending[]
+  }
+
   let sent = 0
   const expired: string[] = []
+  const failures: string[] = []
 
   await Promise.all(
     pending.map(async (p) => {
       try {
         await webpush.sendNotification(
           { endpoint: p.endpoint, keys: { p256dh: p.p256dh, auth: p.auth } },
-          body(p.remaining, p.total),
+          isTest
+            ? JSON.stringify({
+                title: 'Tally',
+                body: 'Push test — the server reached this device.',
+                tag: 'habit-reminder',
+                url: '/',
+              })
+            : body(p.remaining, p.total),
           { TTL: 1800 }, // Pointless to deliver after the next reminder is due.
         )
         sent++
@@ -73,7 +132,12 @@ Deno.serve(async () => {
         // 404/410 mean the browser threw the subscription away — the row is
         // dead and would otherwise be retried every 30 minutes forever.
         if (status === 404 || status === 410) expired.push(p.endpoint)
-        else console.error('push failed', p.endpoint.slice(-12), status, err)
+        else {
+          // Surfaced in the response for the test path: a 401/403 here means
+          // the VAPID keys do not match the ones the device subscribed with.
+          failures.push(`${status ?? 'error'}: ${(err as Error).message}`)
+          console.error('push failed', p.endpoint.slice(-12), status, err)
+        }
       }
     }),
   )
@@ -89,7 +153,8 @@ Deno.serve(async () => {
       .in('endpoint', pending.map((p) => p.endpoint))
   }
 
-  return new Response(JSON.stringify({ due: pending.length, sent, expired: expired.length }), {
-    headers: { 'Content-Type': 'application/json' },
-  })
+  return new Response(
+    JSON.stringify({ due: pending.length, sent, expired: expired.length, failures }),
+    { headers: { ...CORS, 'Content-Type': 'application/json' } },
+  )
 })

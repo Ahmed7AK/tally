@@ -106,14 +106,81 @@ async function removeSubscription(endpoint: string): Promise<void> {
   await supabase.from('push_subscriptions').delete().eq('endpoint', endpoint)
 }
 
-/** Fires a local notification so the user can confirm the plumbing works
- *  without waiting until 6pm. */
-export async function sendTestNotification(): Promise<void> {
+/** Everything needed to tell why a notification did not appear. */
+export interface PushDiagnostics {
+  permission: NotificationPermission
+  installed: boolean
+  ios: boolean
+  serviceWorker: 'controlling' | 'registered' | 'none'
+  subscribed: boolean
+  /** Host only — the endpoint itself is a credential. */
+  pushService: string | null
+  vapidConfigured: boolean
+}
+
+export async function pushDiagnostics(): Promise<PushDiagnostics> {
+  const hasSW = 'serviceWorker' in navigator
+  const reg = hasSW ? await navigator.serviceWorker.getRegistration() : null
+  const sub = reg ? await reg.pushManager?.getSubscription() : null
+
+  return {
+    permission: typeof Notification === 'undefined' ? 'default' : Notification.permission,
+    installed: isStandalone(),
+    ios: isIOS(),
+    serviceWorker: navigator.serviceWorker?.controller
+      ? 'controlling'
+      : reg
+        ? 'registered'
+        : 'none',
+    subscribed: Boolean(sub),
+    pushService: sub ? new URL(sub.endpoint).host : null,
+    vapidConfigured: Boolean(VAPID_PUBLIC_KEY),
+  }
+}
+
+/** Fires a *local* notification. This proves permission and the service worker
+ *  are healthy; it does not prove the server can reach this device — use
+ *  `sendPushTest` for that.
+ *
+ *  Delayed on purpose: iOS does not show a banner while the app is in the
+ *  foreground, so an immediate notification looks like a failure. The delay
+ *  gives you time to switch away. */
+export async function sendLocalTest(delayMs = 4000): Promise<void> {
+  if (Notification.permission !== 'granted') {
+    throw new Error(`Notification permission is "${Notification.permission}", not "granted".`)
+  }
   const reg = await navigator.serviceWorker.ready
+  await new Promise((r) => setTimeout(r, delayMs))
   await reg.showNotification('Tally', {
-    body: 'Reminders are on. This is what 6pm will look like.',
+    body: 'Local test — this is what a reminder looks like.',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag: 'habit-reminder',
   })
+}
+
+/** End-to-end test: asks the server to push to this account's devices, which
+ *  exercises the VAPID keys, the stored subscription and the push service —
+ *  everything the 6pm reminder depends on. */
+export async function sendPushTest(): Promise<string> {
+  if (!supabase) throw new Error('Sync is not configured.')
+
+  const { data, error } = await supabase.functions.invoke('habit-reminder', {
+    body: { test: true },
+  })
+  if (error) {
+    throw new Error(
+      // A 404 here means the function was never deployed, which is by far the
+      // most common cause and the least obvious from the raw message.
+      /not found/i.test(error.message)
+        ? 'The habit-reminder Edge Function is not deployed yet.'
+        : error.message,
+    )
+  }
+
+  const sent = (data as { sent?: number } | null)?.sent ?? 0
+  if (sent === 0) {
+    throw new Error('The server had no push subscription for this device. Try switching reminders off and on.')
+  }
+  return `Server pushed to ${sent} device${sent === 1 ? '' : 's'}.`
 }

@@ -1796,6 +1796,49 @@
   line-height: 1.4;
 }
 
+/* === Diagnostics =========================================================== */
+
+.diag {
+  font-size: 12px;
+  color: var(--dim);
+}
+
+.diag summary {
+  cursor: pointer;
+  padding: 6px 4px;
+  user-select: none;
+}
+
+.diag summary:hover {
+  color: var(--accent);
+}
+
+.diag-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+}
+
+.diag-list dt {
+  color: var(--dim-2);
+}
+
+.diag-list dd {
+  margin: 0;
+  color: var(--fg-2);
+  word-break: break-all;
+}
+
+/* The failing row is the answer, so make it the one thing that stands out. */
+.diag-list dd[data-bad='true'] {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 /* === Share ================================================================= */
 
 .share {
