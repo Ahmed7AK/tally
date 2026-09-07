@@ -513,7 +513,44 @@ export async function deleteRecurrence(id: string): Promise<void> {
 
 export async function toggleTask(t: Task) {
   // Completing clears the overdue mark — a finished task is not still late.
-  await db.tasks.update(t.id, touch({ done: !t.done, overdueFrom: t.done ? t.overdueFrom : undefined }))
+  // Explicitly null, not undefined: Dexie deletes a key set to undefined, and
+  // a key the local row no longer has is a key `toRemote` cannot send — so the
+  // server kept the stale overdue_from and handed the "1 day late" badge
+  // straight back to the other device. A null clears the column for real.
+  await db.tasks.update(
+    t.id,
+    touch({ done: !t.done, overdueFrom: t.done ? t.overdueFrom : null }),
+  )
+  requestSync()
+}
+
+/** Moves a task forward a day on purpose.
+ *
+ *  Deliberately not the same thing as rollover. Rollover catches what you
+ *  *failed* to finish and marks it late; this is a reschedule — something came
+ *  up — so it clears the overdue mark instead of setting one. A task you chose
+ *  to move is not a task you missed.
+ *
+ *  Sub-tasks travel with the parent, as they do on rollover, so a checklist is
+ *  never split across two days. The task lands in its chronological slot on the
+ *  new day, matching where `addTask` would have put it. */
+export async function pushTask(t: Task, days = 1): Promise<void> {
+  const target = addDays(t.date, days)
+  await db.transaction('rw', db.tasks, async () => {
+    const all = live(await db.tasks.toArray())
+    const siblings = all
+      .filter((s) => s.date === target && !s.parentId && s.id !== t.id)
+      .sort(byOrder)
+    const index = chronologicalIndex(siblings, t.time)
+    const order = orderBetween(siblings[index - 1]?.order, siblings[index]?.order)
+
+    // Null, not undefined — Dexie drops an undefined key and the push would
+    // then have no field to clear on the server. See `Task.overdueFrom`.
+    await db.tasks.update(t.id, touch({ date: target, order, overdueFrom: null }))
+    for (const child of all.filter((c) => c.parentId === t.id)) {
+      await db.tasks.update(child.id, touch({ date: target }))
+    }
+  })
   requestSync()
 }
 

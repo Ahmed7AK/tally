@@ -32,8 +32,13 @@ export interface Task extends Synced {
    *  deeper nesting buys little and complicates every read path. */
   parentId?: string
   /** The date this task was originally due, set when it is rolled forward for
-   *  being incomplete. Drives the overdue styling; cleared on completion. */
-  overdueFrom?: ISODate
+   *  being incomplete. Drives the overdue styling.
+   *
+   *  Cleared on completion by writing `null`, not by removing the key: Dexie
+   *  deletes a key assigned undefined, and a field the row does not have is a
+   *  field the push cannot clear on the server. Reads use `??`/truthiness, so
+   *  null and absent behave alike locally. */
+  overdueFrom?: ISODate | null
 }
 
 export interface Habit extends Synced {

@@ -10,6 +10,7 @@ import {
   toggleTask,
   updateTask,
   useDaySummary,
+  pushTask,
   useMaterialise,
   useRatingSeries,
   useRecurrences,
@@ -247,6 +248,18 @@ function TaskRow({
           </div>
 
           {task.time && <span className="row-time">{formatTime(task.time)}</span>}
+          {/* Only worth offering on something still outstanding — a finished
+              task has nowhere useful to go. */}
+          {!task.done && (
+            <button
+              className="row-del"
+              onClick={() => void pushTask(task)}
+              aria-label={`Push ${task.title} to the next day`}
+              title="Push to the next day"
+            >
+              →
+            </button>
+          )}
           <button className="row-del" onClick={() => setEditing(true)} aria-label={`Edit ${task.title}`}>
             ✎
           </button>
