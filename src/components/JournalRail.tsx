@@ -8,7 +8,7 @@ import {
   useJournal,
   useMetric,
 } from '../db/hooks'
-import type { ISODate } from '../lib/date'
+import { addDays, fmtRange, startOfWeek, type ISODate } from '../lib/date'
 import { playDing } from '../lib/sound'
 import { Check, Label, Ring } from '../components/ui'
 
@@ -101,9 +101,13 @@ export function TallyGrid({ date }: { date: ISODate }) {
   )
 }
 
-export function WeekChecks() {
+export function WeekChecks({ date }: { date: ISODate }) {
   const goals = useGoals()
-  const week = goals.filter((g) => g.horizon === 'week')
+  // Match the goals page: a weekly goal belongs to one week's label. Without
+  // this, last week's finished goals kept sitting in the rail forever.
+  const weekStart = startOfWeek(date)
+  const label = fmtRange(weekStart, addDays(weekStart, 6))
+  const week = goals.filter((g) => g.horizon === 'week' && g.label === label)
   if (week.length === 0) return null
   return (
     <div className="section">
@@ -171,14 +175,17 @@ export function BestPart({ date }: { date: ISODate }) {
 }
 
 export default function JournalRail({ date }: { date: ISODate }) {
-  const { rating, tasksDone, tasksTotal, habitsDone, habitsTotal } = useDaySummary(date)
+  const { rating, metric, habitsDone, habitsTotal } = useDaySummary(date)
+  // Mirrors what the rating actually reads, so a low ring is self-explaining.
+  const hrs = (v: number | undefined) => (v === undefined ? '—' : `${+v.toFixed(1)}h`)
   return (
     <>
       <div className="card" style={{ padding: 18, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <Label>Day rating</Label>
           <span style={{ fontSize: 13.5, color: 'var(--dim)' }}>
-            {tasksDone}/{tasksTotal} tasks · {habitsDone}/{habitsTotal} habits
+            {hrs(metric?.hours)} work · {hrs(metric?.screen)} screen · {habitsDone}/
+            {habitsTotal} habits
           </span>
         </div>
         <Ring value={rating} size={62} stroke={6} />
@@ -189,7 +196,7 @@ export default function JournalRail({ date }: { date: ISODate }) {
         <TallyGrid date={date} />
       </div>
 
-      <WeekChecks />
+      <WeekChecks date={date} />
 
       <div className="spacer" />
       <BestPart date={date} />
