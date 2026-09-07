@@ -225,18 +225,64 @@ export function touch<T extends object>(patch: T): T & Pick<Synced, 'updatedAt' 
   return { ...patch, updatedAt: Date.now(), dirty: 1 }
 }
 
-/** Day rating, 0–10, derived from the day's task and habit completion.
- *  The design labels this "Auto from tasks + habits"; the split is even. */
-export function dayRating(
-  tasksDone: number,
-  tasksTotal: number,
-  habitsDone: number,
-  habitsTotal: number,
-): number | null {
-  const parts: number[] = []
-  if (tasksTotal > 0) parts.push(tasksDone / tasksTotal)
-  if (habitsTotal > 0) parts.push(habitsDone / habitsTotal)
+/** What a full day of focused work looks like, in hours. The work score is
+ *  measured against this, so a short day cannot read as a perfect one. */
+export const TARGET_HOURS = 8
+
+/** Weights of the two halves of the rating. Work leads; habits adjust. */
+const WORK_WEIGHT = 0.7
+const HABIT_WEIGHT = 0.3
+
+export interface DayRatingInput {
+  /** Hours worked, as logged in the day's metrics. Undefined when unlogged. */
+  hours?: number
+  /** Screen time for the day. Undefined when unlogged. */
+  screen?: number
+  habitsDone: number
+  habitsTotal: number
+}
+
+/** Day rating, 0–10, from hours worked against screen time, plus habits.
+ *
+ *  Task completion is deliberately not an input. The to-do list is edited as
+ *  the day goes — unfinished items get deleted and rewritten for tomorrow — so
+ *  "tasks done / tasks total" measures how the list was tidied, not how the day
+ *  went, and it trends toward a meaningless 100%.
+ *
+ *  The work half combines two things that are each useless alone:
+ *
+ *    balance — worked / (worked + screen). How the day actually split.
+ *    volume  — worked / TARGET_HOURS. Whether there was much of a day at all.
+ *
+ *  They are combined as a geometric mean rather than an average, so neither can
+ *  carry the score by itself: one hour of work with zero screen time is perfect
+ *  balance but still only one hour, and it lands near 3.5 rather than 10.
+ *
+ *  A component with nothing recorded is dropped and the remaining weight is
+ *  renormalised, so an unlogged day is unrated rather than a zero. */
+export function dayRating({
+  hours,
+  screen,
+  habitsDone,
+  habitsTotal,
+}: DayRatingInput): number | null {
+  const parts: { value: number; weight: number }[] = []
+
+  // Either field on its own is enough to score the day: logging four hours of
+  // screen time and no work is a real signal, not missing data.
+  if (hours !== undefined || screen !== undefined) {
+    const worked = hours ?? 0
+    const burned = screen ?? 0
+    const tracked = worked + burned
+    const balance = tracked > 0 ? worked / tracked : 0
+    const volume = Math.min(1, worked / TARGET_HOURS)
+    parts.push({ value: Math.sqrt(balance * volume), weight: WORK_WEIGHT })
+  }
+
+  if (habitsTotal > 0) parts.push({ value: habitsDone / habitsTotal, weight: HABIT_WEIGHT })
+
   if (parts.length === 0) return null
-  const avg = parts.reduce((a, b) => a + b, 0) / parts.length
-  return Math.round(avg * 100) / 10
+  const total = parts.reduce((a, p) => a + p.weight, 0)
+  const score = parts.reduce((a, p) => a + p.value * p.weight, 0) / total
+  return Math.round(score * 100) / 10
 }

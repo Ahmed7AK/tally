@@ -109,11 +109,15 @@ export function useGoals(): Goal[] {
   return useLiveQuery(async () => live(await db.goals.toArray()).sort((a, b) => a.order - b.order), [], []) ?? []
 }
 
-/** Task + habit completion and derived rating for a single day. */
+/** A day's tasks, habits, metrics and derived rating.
+ *
+ *  `tasks` and `tasksDone` are still returned — the task list and its counters
+ *  need them — but they no longer feed the rating. See `dayRating`. */
 export function useDaySummary(date: ISODate) {
   const tasks = useTasks(date)
   const habits = useHabits()
   const logs = useHabitLogs(date)
+  const metric = useMetric(date)
 
   const tasksDone = tasks.filter((t) => t.done).length
   const habitsDone = habits.filter((h) => logs[h.id]).length
@@ -121,11 +125,17 @@ export function useDaySummary(date: ISODate) {
     tasks,
     habits,
     logs,
+    metric,
     tasksDone,
     tasksTotal: tasks.length,
     habitsDone,
     habitsTotal: habits.length,
-    rating: dayRating(tasksDone, tasks.length, habitsDone, habits.length),
+    rating: dayRating({
+      hours: metric?.hours,
+      screen: metric?.screen,
+      habitsDone,
+      habitsTotal: habits.length,
+    }),
   }
 }
 
@@ -136,16 +146,12 @@ export function useRatingSeries(endDate: ISODate, n: number) {
       async () => {
         const dates = Array.from({ length: n }, (_, i) => addDays(endDate, -(n - 1 - i)))
         const habitCount = live(await db.habits.toArray()).length
-        const [allTasks, allLogs] = await Promise.all([
-          db.tasks.where('date').anyOf(dates).toArray(),
+        const [allMetrics, allLogs] = await Promise.all([
+          db.metrics.where('date').anyOf(dates).toArray(),
           db.habitLogs.where('date').anyOf(dates).toArray(),
         ])
-        const byDateTasks = new Map<string, Task[]>()
-        for (const t of live(allTasks)) {
-          const arr = byDateTasks.get(t.date) ?? []
-          arr.push(t)
-          byDateTasks.set(t.date, arr)
-        }
+        const byDateMetric = new Map<string, DailyMetric>()
+        for (const m of live(allMetrics)) byDateMetric.set(m.date, m)
         const byDateLogs = new Map<string, HabitLog[]>()
         for (const l of live(allLogs)) {
           const arr = byDateLogs.get(l.date) ?? []
@@ -153,19 +159,20 @@ export function useRatingSeries(endDate: ISODate, n: number) {
           byDateLogs.set(l.date, arr)
         }
         return dates.map((d) => {
-          const ts = byDateTasks.get(d) ?? []
+          const m = byDateMetric.get(d)
           const ls = byDateLogs.get(d) ?? []
           // A day with nothing recorded is unrated, not a zero — otherwise
           // future days drag every average down.
-          if (ts.length === 0 && ls.length === 0) return { date: d, rating: null }
+          const logged = m?.hours !== undefined || m?.screen !== undefined
+          if (!logged && ls.length === 0) return { date: d, rating: null }
           return {
             date: d,
-            rating: dayRating(
-              ts.filter((t) => t.done).length,
-              ts.length,
-              ls.filter((l) => l.done).length,
-              habitCount,
-            ),
+            rating: dayRating({
+              hours: m?.hours,
+              screen: m?.screen,
+              habitsDone: ls.filter((l) => l.done).length,
+              habitsTotal: habitCount,
+            }),
           }
         })
       },
