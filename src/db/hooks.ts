@@ -27,7 +27,7 @@ import {
   periodStart,
   taskAppliesOn,
 } from '../lib/recur'
-import { requestSync } from '../sync/sync'
+import { requestSync, whenHydrated } from '../sync/sync'
 
 /** Tombstoned rows stay in the table so their deletion can propagate; every
  *  read path filters them out. */
@@ -443,6 +443,8 @@ export async function rolloverTasks(today: ISODate): Promise<void> {
  *  quarter is normal, not a failure. Recurring goals are skipped because they
  *  mint a fresh instance each period by design. */
 export async function rolloverGoals(labels: Record<Horizon, string>): Promise<void> {
+  // Same reasoning as useMaterialise: derived writes wait for the first pull.
+  await whenHydrated()
   const goals = live(await db.goals.toArray())
   const stale = goals.filter(
     (g) => !g.recurrenceId && g.current < g.target && g.label !== labels[g.horizon],
@@ -473,6 +475,11 @@ export function useMaterialise(date: ISODate): void {
   const recurrences = useRecurrences()
   useEffect(() => {
     void (async () => {
+      // Every call below writes with a fresh updatedAt, which beats an older
+      // edit from the other device under last-write-wins. Wait for the first
+      // pull, or a cold start would roll a task the laptop finished last night
+      // forward as unfinished — and win.
+      await whenHydrated()
       await rolloverTasks(realToday())
       await materialiseFor(date)
       await normaliseCaptured(date)

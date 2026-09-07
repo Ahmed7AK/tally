@@ -47,8 +47,22 @@ export function getSyncState(): { state: SyncState; detail?: string } {
 }
 
 /* --- watermark ------------------------------------------------------------- */
+/* The cursor is `synced_at`, assigned by a Postgres sequence (migration 010),
+ * *not* `updated_at`. `updated_at` is a client clock, so paging on it means
+ * storing a watermark read off another device's clock: a phone running a
+ * minute fast permanently hides every edit the laptop makes inside that
+ * minute, because those rows carry a lower `updated_at` than the watermark
+ * and `updated_at > watermark` stops returning them. A sequence has no such
+ * failure mode — it only increases and never ties.
+ *
+ * The key is deliberately new, so upgrading devices re-pull from zero once and
+ * recover anything the old clock-based cursor skipped past. */
 
-const WATERMARK_KEY = (t: SyncedTable) => `pulled:${t}`
+const WATERMARK_KEY = (t: SyncedTable) => `cursor:${t}`
+
+/** Server-assigned. Sent back on a push would be meaningless — the trigger
+ *  overwrites it — so it is stripped alongside `dirty`. */
+const CURSOR = 'synced_at'
 
 async function getWatermark(table: SyncedTable): Promise<number> {
   const row = await db.settings.get(WATERMARK_KEY(table))
@@ -75,7 +89,7 @@ const toCamel = (key: string): string => key.replace(/_([a-z])/g, (_, c: string)
 function toRemote(row: Record<string, unknown>, uid: string): Record<string, unknown> {
   const out: Record<string, unknown> = { user_id: uid }
   for (const [k, v] of Object.entries(row)) {
-    if (k === 'dirty') continue // local-only bookkeeping
+    if (k === 'dirty' || k === 'syncedAt') continue // not ours to send
     // undefined would be sent as null and clobber a value another device set.
     if (v === undefined) continue
     out[toSnake(k)] = v
@@ -133,14 +147,16 @@ async function pullTable(table: SyncedTable, uid: string): Promise<void> {
       .from(REMOTE_TABLE[table])
       .select('*')
       .eq('user_id', uid)
-      .gt('updated_at', since)
-      .order('updated_at', { ascending: true })
+      .gt(CURSOR, since)
+      .order(CURSOR, { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`pull ${table}: ${error.message}`)
     if (!data || data.length === 0) break
 
     await mergeRows(table, data as Record<string, unknown>[])
-    high = Math.max(high, Number(data[data.length - 1].updated_at))
+    // Safe as a strict `>` next time round: the sequence never repeats, so a
+    // full page can never straddle two rows sharing a cursor and drop one.
+    high = Math.max(high, Number(data[data.length - 1][CURSOR]))
     if (data.length < PAGE) break
   }
 
@@ -161,6 +177,57 @@ async function mergeRows(table: SyncedTable, rows: Record<string, unknown>[]): P
   })
 }
 
+/* --- hydration gate --------------------------------------------------------- */
+/* Rollover and materialisation are mechanical writes: they move an unfinished
+ * task to today, or mint a recurring instance. Both stamp a *fresh* updatedAt,
+ * which under last-write-wins outranks anything older — including a real edit
+ * made on another device that we have not pulled yet.
+ *
+ * Run them on a cold start and that is exactly what happens. The phone opens
+ * in the morning holding yesterday's copy of a task the laptop finished (or
+ * deleted) last night, rollover fires before the first pull lands, and the
+ * task is rewritten as undone, dated today, overdueFrom yesterday. The pull
+ * then arrives with the genuine edit, loses the comparison by a few hundred
+ * milliseconds, and is discarded — and the phone pushes the resurrected row
+ * back out, so the laptop loses it too. The task reads "1 day late" on both
+ * devices no matter what was actually done to it.
+ *
+ * So: nothing derived writes until the first pull has settled. */
+
+const HYDRATE_TIMEOUT = 8000
+
+let hydrated: Promise<void> = Promise.resolve()
+let markHydrated: () => void = () => {}
+
+function resetHydration(): void {
+  if (!supabase) {
+    hydrated = Promise.resolve()
+    markHydrated = () => {}
+    return
+  }
+  let settled = false
+  hydrated = new Promise<void>((resolve) => {
+    markHydrated = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    // A gate that can hang is worse than the race it prevents: offline, or on
+    // a server that never answers, the app still has to be usable. Waiting is
+    // bounded, and timing out just restores the old behaviour.
+    setTimeout(() => markHydrated(), HYDRATE_TIMEOUT)
+  })
+}
+
+resetHydration()
+
+/** Resolves once the first sync pass since sign-in has finished — successfully
+ *  or not. Anything that writes *derived* state should await this first, so it
+ *  reasons about the other device's edits instead of racing them. */
+export function whenHydrated(): Promise<void> {
+  return hydrated
+}
+
 /* --- orchestration --------------------------------------------------------- */
 
 async function runSync(): Promise<void> {
@@ -171,6 +238,8 @@ async function runSync(): Promise<void> {
   }
   if (!navigator.onLine) {
     setState('offline')
+    // Offline is a settled answer, not a pending one — don't strand the gate.
+    markHydrated()
     return
   }
 
@@ -188,6 +257,7 @@ async function runSync(): Promise<void> {
     console.error('sync failed', err)
   } finally {
     running = false
+    markHydrated()
     if (queued) {
       queued = false
       void runSync()
@@ -264,6 +334,7 @@ export async function stopSync(): Promise<void> {
     channel = null
   }
   userId = null
+  resetHydration()
   if (debounce) {
     clearTimeout(debounce)
     debounce = null
